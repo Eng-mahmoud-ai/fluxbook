@@ -8,7 +8,7 @@ import {
   Wallet, ArrowUpRight, ArrowDownRight, Menu, X, Search, Bell, TrendingUp, TrendingDown,
   Check, Clock, AlertTriangle, Pencil, Trash2, CreditCard, FileSpreadsheet, Tag, Loader2,
 } from "lucide-react";
-import { supabase, supabaseReady, DEFAULT_CATEGORIES } from "./lib/supabase.js";
+import { supabase, supabaseReady, DEFAULT_CATEGORIES } from "./supabase.js";
 
 /* ---------------- helpers ---------------- */
 const kes = (n, cents = false) =>
