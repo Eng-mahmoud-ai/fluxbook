@@ -1,10 +1,17 @@
 -- ============================================================
---  Fluxbook — Supabase schema
---  Run this once in Supabase → SQL Editor → New query → Run.
+--  Fluxbook — Supabase schema (WITH LOGIN / per-user privacy)
+--  Run this in Supabase → SQL Editor → New query → Run.
+--  WARNING: this drops the existing tables and their data.
 -- ============================================================
 
-create table if not exists transactions (
+drop table if exists transactions cascade;
+drop table if exists categories   cascade;
+drop table if exists installments cascade;
+drop table if exists settings     cascade;
+
+create table transactions (
   id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
   txn_date    date not null default now(),
   description text not null,
   category    text,
@@ -14,47 +21,34 @@ create table if not exists transactions (
   created_at  timestamptz not null default now()
 );
 
-create table if not exists categories (
-  id   uuid primary key default gen_random_uuid(),
-  name text not null unique
+create table categories (
+  id      uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name    text not null,
+  unique (user_id, name)
 );
 
-create table if not exists installments (
+create table installments (
   id      uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   label   text not null,
   total   numeric not null default 0,
   paid    numeric not null default 0,
   monthly numeric not null default 0
 );
 
-create table if not exists settings (
-  id           int primary key default 1,
+create table settings (
+  user_id      uuid primary key default auth.uid() references auth.users(id) on delete cascade,
   balance_base numeric not null default 0
 );
 
--- ------------------------------------------------------------
---  Access policies
---  This is a personal, single-user app that talks to Supabase
---  with the public "anon" key, so we allow the anon role full
---  access. NOTE: anyone with your URL + anon key could then
---  read/write this data. For a private app, add Supabase Auth
---  and scope these policies to auth.uid() instead.
--- ------------------------------------------------------------
-alter table transactions  enable row level security;
-alter table categories    enable row level security;
-alter table installments  enable row level security;
-alter table settings      enable row level security;
+-- Row Level Security: each person can only see and edit their OWN rows.
+alter table transactions enable row level security;
+alter table categories   enable row level security;
+alter table installments enable row level security;
+alter table settings     enable row level security;
 
-drop policy if exists "anon all" on transactions;
-drop policy if exists "anon all" on categories;
-drop policy if exists "anon all" on installments;
-drop policy if exists "anon all" on settings;
-
-create policy "anon all" on transactions  for all using (true) with check (true);
-create policy "anon all" on categories    for all using (true) with check (true);
-create policy "anon all" on installments  for all using (true) with check (true);
-create policy "anon all" on settings      for all using (true) with check (true);
-
--- Optional: seed one settings row + a starter installment.
-insert into settings (id, balance_base) values (1, 842000)
-  on conflict (id) do nothing;
+create policy "own rows" on transactions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own rows" on categories   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own rows" on installments for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own rows" on settings     for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

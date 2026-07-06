@@ -6,7 +6,7 @@ import {
 import {
   LayoutDashboard, ArrowLeftRight, LineChart as LineChartIcon, Settings, Moon, Sun, Plus,
   Wallet, ArrowUpRight, ArrowDownRight, Menu, X, Search, Bell, TrendingUp, TrendingDown,
-  Check, Clock, AlertTriangle, Pencil, Trash2, CreditCard, FileSpreadsheet, Tag, Loader2,
+  Check, Clock, AlertTriangle, Pencil, Trash2, CreditCard, FileSpreadsheet, Tag, Loader2, LogOut,
 } from "lucide-react";
 import { supabase, supabaseReady, DEFAULT_CATEGORIES } from "./supabase.js";
 
@@ -287,6 +287,42 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key</pre>
   );
 }
 
+/* ---------------- login screen (accounts are created by the admin) ---------------- */
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setErr(""); setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pw });
+    if (error) setErr(error.message);
+    setBusy(false);
+  };
+  const field = "w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20";
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6 text-slate-800" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
+      <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+        <div className="mb-5 flex items-center gap-2.5">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-600 text-white"><Wallet size={20} /></div>
+          <div className="leading-tight"><div className="text-base font-semibold">Fluxbook</div><div className="text-xs text-slate-400">Cash flow</div></div>
+        </div>
+        <h1 className="text-lg font-semibold">Log in</h1>
+        <p className="mt-1 text-sm text-slate-500">Enter the email and password you were given.</p>
+        <div className="mt-5 space-y-3">
+          <div><label className="mb-1 block text-xs font-semibold text-slate-500">Email</label><input type="email" className={field} value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} placeholder="you@example.com" /></div>
+          <div><label className="mb-1 block text-xs font-semibold text-slate-500">Password</label><input type="password" className={field} value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} placeholder="••••••••" /></div>
+        </div>
+        {err && <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">{err}</p>}
+        <button onClick={submit} disabled={busy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60">
+          {busy && <Loader2 size={15} className="animate-spin" />} Log in
+        </button>
+        <p className="mt-4 text-center text-xs text-slate-400">Accounts are created by the administrator.</p>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- main app ---------------- */
 export default function App() {
   const [dark, setDark] = useState(false);
@@ -305,14 +341,27 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [editingBalance, setEditingBalance] = useState(false);
   const [balanceDraft, setBalanceDraft] = useState("");
   const balanceInputRef = useRef(null);
   const theme = useTheme(dark);
 
-  /* ---- load everything from Supabase ---- */
+  /* ---- track the logged-in user ---- */
   useEffect(() => {
-    if (!supabaseReady) { setLoading(false); return; }
+    if (!supabaseReady) { setAuthLoading(false); return; }
+    supabase.auth.getSession().then(({ data }) => { setUser(data.session?.user ?? null); setAuthLoading(false); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const logout = async () => { await supabase.auth.signOut(); setTxs([]); setInstallments([]); setCategories([]); setBalanceBase(0); };
+
+  /* ---- load everything from Supabase (per user) ---- */
+  useEffect(() => {
+    if (!supabaseReady || !user) { setLoading(false); return; }
     (async () => {
       try {
         setLoading(true);
@@ -320,7 +369,7 @@ export default function App() {
           supabase.from("transactions").select("*").order("txn_date", { ascending: false }),
           supabase.from("categories").select("*").order("name"),
           supabase.from("installments").select("*").order("label"),
-          supabase.from("settings").select("*").eq("id", 1).maybeSingle(),
+          supabase.from("settings").select("*").maybeSingle(),
         ]);
         if (txRes.error) throw txRes.error;
         if (catRes.error) throw catRes.error;
@@ -334,11 +383,11 @@ export default function App() {
         setCategories(cats);
         setInstallments((instRes.data || []).map((r) => ({ id: r.id, label: r.label, total: Number(r.total), paid: Number(r.paid), monthly: Number(r.monthly) })));
         if (setRes.data) setBalanceBase(Number(setRes.data.balance_base));
-        else { await supabase.from("settings").insert({ id: 1, balance_base: 0 }); setBalanceBase(0); }
+        else { await supabase.from("settings").insert({ balance_base: 0 }); setBalanceBase(0); }
       } catch (e) { setErrorMsg(e.message || String(e)); }
       finally { setLoading(false); }
     })();
-  }, []);
+  }, [user]);
 
   const metrics = useMemo(() => {
     const cutoff = daysAgo(30); let cashIn = 0, cashOut = 0;
@@ -374,7 +423,7 @@ export default function App() {
     try { const { error } = await supabase.from("transactions").delete().eq("id", id); if (error) throw error; setTxs((prev) => prev.filter((x) => x.id !== id)); } catch (e) { fail(e); }
   };
   const clearAll = async () => {
-    try { const { error } = await supabase.from("transactions").delete().not("id", "is", null); if (error) throw error; setTxs([]); setConfirmClear(false); } catch (e) { fail(e); }
+    try { const { error } = await supabase.from("transactions").delete().eq("user_id", user.id); if (error) throw error; setTxs([]); setConfirmClear(false); } catch (e) { fail(e); }
   };
 
   /* ---- category ops ---- */
@@ -426,7 +475,7 @@ export default function App() {
     const v = parseFloat(balanceDraft);
     if (!isNaN(v)) {
       const base = v - metrics.cashIn + metrics.cashOut;
-      try { const { error } = await supabase.from("settings").update({ balance_base: base }).eq("id", 1); if (error) throw error; setBalanceBase(base); } catch (e) { fail(e); }
+      try { const { error } = await supabase.from("settings").update({ balance_base: base }).eq("user_id", user.id); if (error) throw error; setBalanceBase(base); } catch (e) { fail(e); }
     }
     setEditingBalance(false);
   };
@@ -462,6 +511,12 @@ export default function App() {
   };
 
   if (!supabaseReady) return <SetupScreen />;
+  if (authLoading) return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 text-slate-500" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
+      <div className="flex items-center gap-3"><Loader2 className="animate-spin" size={20} /> Loading…</div>
+    </div>
+  );
+  if (!user) return <LoginScreen />;
   if (loading) return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 text-slate-500" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
       <div className="flex items-center gap-3"><Loader2 className="animate-spin" size={20} /> Loading your data…</div>
@@ -481,7 +536,10 @@ export default function App() {
     <aside className={`flex h-full w-64 flex-col border-r ${theme.sidebar}`}>
       <div className="flex items-center gap-2.5 px-5 py-5"><div className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-600 text-white shadow-sm"><Wallet size={18} strokeWidth={2.4} /></div><div className="leading-tight"><div className="text-sm font-semibold">Fluxbook</div><div className={`text-xs ${theme.faint}`}>Cash flow</div></div></div>
       <nav className="mt-2 flex-1 space-y-1 px-3">{NAV.map(({ key, icon: Icon }) => (<button key={key} onClick={() => { setActive(key); setSidebarOpen(false); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${active === key ? theme.navActive : theme.navIdle}`}><Icon size={18} strokeWidth={2.1} />{key}</button>))}</nav>
-      <div className={`m-3 rounded-2xl border p-4 ${theme.card}`}><div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" /><span className="text-sm font-semibold">Saved to Supabase</span></div><p className={`mt-1.5 text-xs leading-relaxed ${theme.subtle}`}>Your data syncs to the cloud and is here on every device.</p></div>
+      <div className={`m-3 rounded-2xl border p-4 ${theme.card}`}>
+        <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" /><span className="truncate text-sm font-semibold">{user?.email}</span></div>
+        <button onClick={logout} className={`mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-sm font-semibold ${theme.card} ${theme.subtle} hover:text-red-500`}><LogOut size={15} />Log out</button>
+      </div>
     </aside>
   );
 
